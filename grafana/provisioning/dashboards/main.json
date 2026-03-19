@@ -1,0 +1,66 @@
+{
+  "title": "Rate Limiter Analytics",
+  "uid": "rate-limiter-main",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5s",
+  "time": {"from": "now-30m", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Requests/sec",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
+      "targets": []
+    },
+    {
+      "id": 2,
+      "title": "Rejection Rate %",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
+      "targets": []
+    },
+    {
+      "id": 3,
+      "title": "Top 10 Clients by Traffic",
+      "type": "barchart",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
+      "targets": []
+    },
+    {
+      "id": 4,
+      "title": "Top 5 Clients by Rejections",
+      "type": "table",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
+      "targets": []
+    },
+    {
+      "id": 5,
+      "title": "P99 Latency (ms)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
+      "targets": []
+    },
+    {
+      "id": 6,
+      "title": "Requests by Endpoint",
+      "type": "piechart",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
+      "targets": []
+    },
+    {
+      "id": 7,
+      "title": "Circuit Breaker Trips",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 24, "w": 24, "h": 8},
+      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
+      "targets": []
+    }
+  ]
+}
