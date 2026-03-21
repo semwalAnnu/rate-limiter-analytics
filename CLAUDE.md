@@ -193,6 +193,27 @@ Build these panels (all powered by TimescaleDB queries):
 
 ---
 
+## Commit Message Style
+
+Write commit messages the way a developer would in normal day-to-day work.
+Short, lowercase, imperative tense. Max 50 characters on the first line.
+No corporate language, no over-explaining, no buzzwords.
+
+Good:
+
+- Added token bucket rate limiter
+- Fixed redis connection timeout
+- Wired kafka producer to gateway
+- Added locust load test config
+- Initialized project structure
+- Fixedrefill logic
+
+Bad (never write like this):
+
+- Implement comprehensive token bucket rate limiting algorithm with Redis backend
+- Refactor and optimize the gateway module for improved performance and maintainability
+- Add initial project scaffolding with proper directory structure
+
 ## Jupyter Analysis Goals
 
 The notebook should answer these questions using Pandas on TimescaleDB data:
