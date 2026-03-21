@@ -25,6 +25,9 @@ env/
 .vscode/
 *.swp
 
+# Claude Code local settings
+.claude/
+
 # Docker
 *.log
 
