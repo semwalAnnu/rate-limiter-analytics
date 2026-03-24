@@ -2,65 +2,110 @@
   "title": "Rate Limiter Analytics",
   "uid": "rate-limiter-main",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
-  "time": {"from": "now-30m", "to": "now"},
+  "time": {"from": "now-1h", "to": "now"},
+  "annotations": {
+    "list": [
+      {
+        "name": "Circuit Breaker Trips",
+        "datasource": {"type": "postgres", "uid": "timescaledb"},
+        "enable": true,
+        "iconColor": "red",
+        "rawQuery": "SELECT time AS time, client_id AS text FROM request_events WHERE status = 'circuit_open' AND $__timeFilter(time) ORDER BY time",
+        "format": "table"
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
-      "title": "Total Requests/sec",
+      "title": "Requests/sec + Rejection Rate",
       "type": "timeseries",
-      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
-      "targets": []
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
+      "datasource": {"type": "postgres", "uid": "timescaledb"},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "rejection_pct"},
+            "properties": [
+              {"id": "custom.axisPlacement", "value": "right"},
+              {"id": "unit", "value": "percent"},
+              {"id": "custom.drawStyle", "value": "line"},
+              {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT time_bucket('1 minute', bucket) AS time, SUM(total_requests) / 60.0 AS rps FROM request_metrics_1m WHERE $__timeFilter(bucket) GROUP BY 1 ORDER BY 1",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT time_bucket('1 minute', bucket) AS time, SUM(rejected)::float / NULLIF(SUM(total_requests), 0) * 100 AS rejection_pct FROM request_metrics_1m WHERE $__timeFilter(bucket) GROUP BY 1 ORDER BY 1",
+          "format": "time_series"
+        }
+      ]
     },
     {
       "id": 2,
-      "title": "Rejection Rate %",
-      "type": "timeseries",
-      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
-      "targets": []
-    },
-    {
-      "id": 3,
       "title": "Top 10 Clients by Traffic",
       "type": "barchart",
       "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
-      "targets": []
+      "datasource": {"type": "postgres", "uid": "timescaledb"},
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT client_id, SUM(total_requests) AS total FROM request_metrics_1m WHERE $__timeFilter(bucket) GROUP BY client_id ORDER BY total DESC LIMIT 10",
+          "format": "table"
+        }
+      ]
     },
     {
-      "id": 4,
+      "id": 3,
       "title": "Top 5 Clients by Rejections",
       "type": "table",
       "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
-      "targets": []
+      "datasource": {"type": "postgres", "uid": "timescaledb"},
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT client_id, SUM(rejected) AS rejections, ROUND(SUM(rejected)::numeric / NULLIF(SUM(total_requests), 0) * 100, 1) AS rejection_pct FROM request_metrics_1m WHERE $__timeFilter(bucket) GROUP BY client_id ORDER BY rejections DESC LIMIT 5",
+          "format": "table"
+        }
+      ]
     },
     {
-      "id": 5,
+      "id": 4,
       "title": "P99 Latency (ms)",
       "type": "timeseries",
       "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
-      "targets": []
+      "datasource": {"type": "postgres", "uid": "timescaledb"},
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT time_bucket('1 minute', bucket) AS time, MAX(p99_latency_ms) AS p99 FROM request_metrics_1m WHERE $__timeFilter(bucket) GROUP BY 1 ORDER BY 1",
+          "format": "time_series"
+        }
+      ]
     },
     {
-      "id": 6,
+      "id": 5,
       "title": "Requests by Endpoint",
       "type": "piechart",
       "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
-      "targets": []
-    },
-    {
-      "id": 7,
-      "title": "Circuit Breaker Trips",
-      "type": "timeseries",
-      "gridPos": {"x": 0, "y": 24, "w": 24, "h": 8},
-      "datasource": {"type": "postgres", "uid": "${DS_TIMESCALEDB}"},
-      "targets": []
+      "datasource": {"type": "postgres", "uid": "timescaledb"},
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT endpoint, SUM(total_requests) AS total FROM request_metrics_1m WHERE $__timeFilter(bucket) GROUP BY endpoint ORDER BY total DESC",
+          "format": "table"
+        }
+      ]
     }
   ]
 }
