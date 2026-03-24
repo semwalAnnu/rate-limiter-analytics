@@ -99,12 +99,11 @@ class Aggregator:
 
 
 async def flush_rollups(pool, rows: list[dict]) -> None:
-    """INSERT rollup rows into request_metrics_1m."""
-    for row in rows:
-        await pool.execute(
-            """INSERT INTO request_metrics_1m (bucket, client_id, endpoint,
-               total_requests, allowed, rejected, avg_latency_ms, p99_latency_ms)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+    """INSERT rollup rows into request_metrics_1m using a batch insert."""
+    if not rows:
+        return
+    args = [
+        (
             row["bucket"],
             row["client_id"],
             row["endpoint"],
@@ -114,3 +113,11 @@ async def flush_rollups(pool, rows: list[dict]) -> None:
             row["avg_latency_ms"],
             row["p99_latency_ms"],
         )
+        for row in rows
+    ]
+    await pool.executemany(
+        """INSERT INTO request_metrics_1m (bucket, client_id, endpoint,
+           total_requests, allowed, rejected, avg_latency_ms, p99_latency_ms)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+        args,
+    )

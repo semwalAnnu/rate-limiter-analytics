@@ -112,7 +112,7 @@ class TestAggregator:
 
 class TestFlushRollups:
     def test_inserts_rows_to_metrics_table(self):
-        """flush_rollups should INSERT each row into request_metrics_1m."""
+        """flush_rollups should batch INSERT rows into request_metrics_1m."""
         pool = AsyncMock()
         rows = [
             {
@@ -127,6 +127,12 @@ class TestFlushRollups:
             }
         ]
         asyncio.run(flush_rollups(pool, rows))
-        pool.execute.assert_awaited_once()
-        sql = pool.execute.call_args.args[0]
+        pool.executemany.assert_awaited_once()
+        sql = pool.executemany.call_args.args[0]
         assert "request_metrics_1m" in sql
+
+    def test_noop_on_empty_rows(self):
+        """flush_rollups should do nothing when given an empty list."""
+        pool = AsyncMock()
+        asyncio.run(flush_rollups(pool, []))
+        pool.executemany.assert_not_awaited()
