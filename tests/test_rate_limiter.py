@@ -5,37 +5,17 @@ so no real Redis instance is needed. Time is patched to make
 token refill calculations deterministic.
 
 Run:
-    pytest tests/test_rate_limiter.py -v
+    docker compose run --rm test pytest tests/test_rate_limiter.py -v
 """
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ── Stub heavy dependencies before importing rate_limiter
-_mock_exc = MagicMock()
-_mock_exc.WatchError = type("WatchError", (Exception,), {})
-sys.modules.setdefault("aioredis", MagicMock())
-sys.modules["aioredis.exceptions"] = _mock_exc
-
-# config.settings reads .env at import time; the .env has Grafana keys that
-# pydantic-settings rejects as extra fields. Provide a clean stub instead.
-_mock_settings = MagicMock()
-_mock_settings.rate_limit_capacity = 100.0
-_mock_settings.rate_limit_refill_rate = 10.0
-_mock_config = MagicMock()
-_mock_config.settings = _mock_settings
-sys.modules["config"] = _mock_config
-
-# gateway/ is a sibling of tests/ — add it so we can import rate_limiter directly
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "gateway"))
-
-from rate_limiter import check_rate_limit  # noqa: E402  (must come after sys.path)
+from redis.exceptions import WatchError
+from rate_limiter import check_rate_limit
 
 # Fixed "now" used across all tests so time never drifts
 T0 = 1_000_000.0
@@ -59,9 +39,11 @@ class _FakePipeline:
     def multi(self) -> None:
         self._queued = []
 
-    def set(self, key: str, value: object) -> None:
-        # queue without awaiting — mirrors real pipeline behaviour after MULTI
+    def set(self, key: str, value: object, ex: int | None = None) -> None:
         self._queued.append((key, str(value)))
+
+    def expire(self, key: str, seconds: int) -> None:
+        pass
 
     async def execute(self) -> list:
         for key, value in self._queued:
@@ -97,7 +79,7 @@ def test_tokens_decrease_on_allowed_request():
         allowed, tokens = asyncio.run(check_rate_limit(redis, "client_a"))
 
     assert allowed is True
-    assert tokens == pytest.approx(99.0)  # capacity(100) - 1
+    assert tokens == pytest.approx(99.0)
 
 
 def test_request_rejected_when_tokens_exhausted():
@@ -107,11 +89,11 @@ def test_request_rejected_when_tokens_exhausted():
     redis._store["bucket:client_b:last_refill"] = str(T0)
 
     with patch("rate_limiter.time") as mock_time:
-        mock_time.time.return_value = T0  # no time passes → no refill
+        mock_time.time.return_value = T0
         allowed, tokens = asyncio.run(check_rate_limit(redis, "client_b"))
 
     assert allowed is False
-    assert tokens == pytest.approx(0.5)  # unchanged — not consumed
+    assert tokens == pytest.approx(0.5)
 
 
 def test_tokens_refill_over_time():
@@ -121,11 +103,11 @@ def test_tokens_refill_over_time():
     redis._store["bucket:client_c:last_refill"] = str(T0)
 
     with patch("rate_limiter.time") as mock_time:
-        mock_time.time.return_value = T0 + 5.0  # 5 s × 10 tok/s = 50 new tokens
+        mock_time.time.return_value = T0 + 5.0
         allowed, tokens = asyncio.run(check_rate_limit(redis, "client_c"))
 
     assert allowed is True
-    assert tokens == pytest.approx(49.0)  # 50 refilled − 1 consumed
+    assert tokens == pytest.approx(49.0)
 
 
 def test_tokens_capped_at_capacity():
@@ -135,11 +117,12 @@ def test_tokens_capped_at_capacity():
     redis._store["bucket:client_d:last_refill"] = str(T0)
 
     with patch("rate_limiter.time") as mock_time:
-        mock_time.time.return_value = T0 + 100.0  # would give 1090 tokens without cap
+        mock_time.time.return_value = T0 + 100.0
         allowed, tokens = asyncio.run(check_rate_limit(redis, "client_d"))
 
     assert allowed is True
-    assert tokens == pytest.approx(99.0)  # capped at 100, minus 1 consumed
+    assert tokens == pytest.approx(99.0)
+
 
 def test_different_clients_are_independent():
     redis = FakeRedis()
@@ -152,13 +135,13 @@ def test_different_clients_are_independent():
         allowed_d, tokens_d = asyncio.run(
             check_rate_limit(redis, "client_d")
         )
-        assert allowed_d is False 
+        assert allowed_d is False
         assert tokens_d == pytest.approx(0.0)
 
         allowed_e, tokens_e = asyncio.run(
             check_rate_limit(redis, "client_e")
         )
-        assert allowed_e is True 
+        assert allowed_e is True
         assert tokens_e == pytest.approx(99.0)
 
         allowed_d2, tokens_d2 = asyncio.run(
@@ -166,3 +149,40 @@ def test_different_clients_are_independent():
         )
         assert allowed_d2 is False
         assert tokens_d2 == pytest.approx(0.0)
+
+
+def test_watcherror_retry_succeeds():
+    """Rate limiter retries and succeeds after a WatchError on first attempt."""
+    redis = FakeRedis()
+    call_count = 0
+    original_execute = _FakePipeline.execute
+
+    async def flaky_execute(self):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise WatchError()
+        return await original_execute(self)
+
+    with patch("rate_limiter.time") as mock_time:
+        mock_time.time.return_value = T0
+        with patch.object(_FakePipeline, "execute", flaky_execute):
+            allowed, tokens = asyncio.run(check_rate_limit(redis, "client_f"))
+
+    assert allowed is True
+    assert tokens == pytest.approx(99.0)
+    assert call_count == 2
+
+
+def test_watcherror_exhausts_max_retries():
+    """Rate limiter raises after exhausting all retry attempts."""
+    redis = FakeRedis()
+
+    async def always_fail(self):
+        raise WatchError()
+
+    with patch("rate_limiter.time") as mock_time:
+        mock_time.time.return_value = T0
+        with patch.object(_FakePipeline, "execute", always_fail):
+            with pytest.raises(RuntimeError, match="rate limit check failed"):
+                asyncio.run(check_rate_limit(redis, "client_g"))

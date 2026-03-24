@@ -1,4 +1,4 @@
-"""Token bucket rate limiter backed by Redis (aioredis).
+"""Token bucket rate limiter backed by Redis.
 
 Each client gets two Redis keys:
   bucket:{client_id}:tokens      — current token count (float)
@@ -12,15 +12,17 @@ from __future__ import annotations
 import time
 from typing import Tuple
 
-import aioredis
-from aioredis.exceptions import WatchError
+import redis.asyncio as aioredis
+from redis.exceptions import WatchError
 
 from config import settings
 
+MAX_RETRIES = 5
 
-async def get_redis() -> aioredis.Redis:
-    """Return a connected aioredis client. Call once at startup."""
-    return await aioredis.from_url(
+
+def get_redis() -> aioredis.Redis:
+    """Return an async Redis client. Call once at startup."""
+    return aioredis.from_url(
         settings.redis_url,
         encoding="utf-8",
         decode_responses=True,
@@ -41,12 +43,11 @@ async def check_rate_limit(redis: aioredis.Redis, client_id: str) -> Tuple[bool,
     tokens_key = f"bucket:{client_id}:tokens"
     refill_key = f"bucket:{client_id}:last_refill"
 
-    async with redis.pipeline(transaction=True) as pipe:
-        while True:
+    for attempt in range(MAX_RETRIES):
+        async with redis.pipeline(transaction=True) as pipe:
             try:
                 await pipe.watch(tokens_key, refill_key)
 
-                # Immediate reads (before MULTI — pipeline is in buffered-off mode)
                 raw_tokens = await pipe.get(tokens_key)
                 raw_last_refill = await pipe.get(refill_key)
 
@@ -54,7 +55,6 @@ async def check_rate_limit(redis: aioredis.Redis, client_id: str) -> Tuple[bool,
                 tokens = float(raw_tokens) if raw_tokens is not None else settings.rate_limit_capacity
                 last_refill = float(raw_last_refill) if raw_last_refill is not None else now
 
-                # Refill: add tokens earned since last check, cap at capacity
                 elapsed = now - last_refill
                 tokens = min(
                     settings.rate_limit_capacity,
@@ -65,14 +65,16 @@ async def check_rate_limit(redis: aioredis.Redis, client_id: str) -> Tuple[bool,
                 if allowed:
                     tokens -= 1.0
 
-                # Atomic write — EXEC fails if any watched key changed
                 pipe.multi()
                 pipe.set(tokens_key, tokens)
                 pipe.set(refill_key, now)
+                pipe.expire(tokens_key, 300)
+                pipe.expire(refill_key, 300)
                 await pipe.execute()
 
                 return allowed, tokens
 
             except WatchError:
-                # Another request modified the bucket between our read and write — retry
                 continue
+
+    raise RuntimeError(f"rate limit check failed after {MAX_RETRIES} retries")

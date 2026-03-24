@@ -6,6 +6,7 @@ Every request: validate JWT → check rate limit → proxy to upstream →
 """
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import asynccontextmanager
 
@@ -14,15 +15,33 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 
 from auth import get_client_id
 from config import settings
+from kafka_producer import get_producer, publish_event
+from models import RequestEvent
 from rate_limiter import check_rate_limit, get_redis
+
+logger = logging.getLogger(__name__)
+
+STRIP_HEADERS = {"host", "authorization", "cookie"}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.redis = await get_redis()
-    app.state.producer = None  # Phase 2: Kafka producer
+    app.state.redis = get_redis()
+    app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0),
+    )
+    try:
+        app.state.producer = await get_producer()
+        logger.info("kafka producer started")
+    except Exception:
+        logger.warning("kafka unavailable, running without event publishing")
+        app.state.producer = None
     yield
+    await app.state.http_client.aclose()
     await app.state.redis.aclose()
+    if app.state.producer:
+        await app.state.producer.flush()
+        await app.state.producer.stop()
 
 
 app = FastAPI(title="Rate Limiter Gateway", lifespan=lifespan)
@@ -40,10 +59,23 @@ async def proxy(
     client_id: str = Depends(get_client_id),
 ) -> Response:
     redis = request.app.state.redis
-    allowed, tokens = await check_rate_limit(redis, client_id)
+
+    try:
+        allowed, tokens = await check_rate_limit(redis, client_id)
+    except Exception:
+        logger.exception("redis error during rate limit check")
+        raise HTTPException(status_code=503, detail="rate limiter unavailable")
 
     if not allowed:
-        # Phase 2: publish rejection event to Kafka here
+        event = RequestEvent(
+            client_id=client_id,
+            endpoint=path,
+            method=request.method,
+            status="rejected",
+            latency_ms=0.0,
+            tokens_remaining=tokens,
+        )
+        await publish_event(request.app.state.producer, event)
         raise HTTPException(
             status_code=429,
             detail={
@@ -53,17 +85,31 @@ async def proxy(
         )
 
     start = time.monotonic()
-    async with httpx.AsyncClient() as client:
-        upstream_response = await client.request(
+    try:
+        upstream_response = await request.app.state.http_client.request(
             method=request.method,
             url=f"{settings.upstream_url}/{path}",
-            headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
+            headers={k: v for k, v in request.headers.items() if k.lower() not in STRIP_HEADERS},
             content=await request.body(),
             params=dict(request.query_params),
         )
-    latency_ms = (time.monotonic() - start) * 1000  # noqa: F841 — Phase 2: include in event
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="upstream timeout")
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="upstream unreachable")
 
-    # Phase 2: publish allowed event to Kafka here
+    latency_ms = (time.monotonic() - start) * 1000
+
+    event = RequestEvent(
+        client_id=client_id,
+        endpoint=path,
+        method=request.method,
+        status="allowed",
+        latency_ms=latency_ms,
+        tokens_remaining=tokens,
+        upstream_status=upstream_response.status_code,
+    )
+    await publish_event(request.app.state.producer, event)
 
     return Response(
         content=upstream_response.content,
