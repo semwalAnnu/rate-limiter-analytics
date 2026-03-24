@@ -1,7 +1,7 @@
 """Kafka producer for request events.
 
-Publishes RequestEvent JSON to the configured topic. Uses at-least-once
-delivery with batching (linger_ms=10). Errors are logged, never raised.
+Publishes RequestEvent JSON to the configured topic. Uses leader-ack
+delivery (acks=1) with batching (linger_ms=10). Errors are logged, never raised.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ async def get_producer() -> AIOKafkaProducer:
     """Create and start an AIOKafkaProducer. Call once at startup."""
     producer = AIOKafkaProducer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
-        acks="all",
+        acks=1,
         linger_ms=10,
         max_batch_size=16384,
     )

@@ -116,6 +116,51 @@ def test_upstream_timeout_returns_504():
     assert response.status_code == 504
 
 
+def test_allowed_request_publishes_event():
+    """Allowed request publishes a Kafka event with latency and upstream status."""
+    mock_http = AsyncMock()
+    mock_http.request = AsyncMock(return_value=_fake_upstream(200))
+
+    with patch("main.get_redis", return_value=AsyncMock()):
+        app.dependency_overrides[get_client_id] = lambda: "pub-client"
+        try:
+            with patch("main.check_rate_limit", new=AsyncMock(return_value=(True, 95.0))):
+                with patch("main.publish_event", new_callable=AsyncMock) as mock_publish:
+                    with TestClient(app) as c:
+                        app.state.http_client = mock_http
+                        response = c.get("/api/v1/products")
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    mock_publish.assert_called_once()
+    event = mock_publish.call_args[0][1]
+    assert event.status == "allowed"
+    assert event.client_id == "pub-client"
+    assert event.endpoint == "products"
+    assert event.latency_ms > 0
+    assert event.upstream_status == 200
+
+
+def test_rejected_request_publishes_event():
+    """Rejected request publishes a Kafka event with status=rejected."""
+    with patch("main.get_redis", return_value=AsyncMock()):
+        app.dependency_overrides[get_client_id] = lambda: "rej-client"
+        try:
+            with patch("main.check_rate_limit", new=AsyncMock(return_value=(False, 0.3))):
+                with patch("main.publish_event", new_callable=AsyncMock) as mock_publish:
+                    with TestClient(app) as c:
+                        response = c.get("/api/v1/products")
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 429
+    mock_publish.assert_called_once()
+    event = mock_publish.call_args[0][1]
+    assert event.status == "rejected"
+    assert event.client_id == "rej-client"
+
+
 def test_redis_down_returns_503():
     """When Redis is unreachable during rate limiting, gateway returns 503."""
     with patch("main.get_redis", return_value=AsyncMock()):
