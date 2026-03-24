@@ -17,6 +17,8 @@ from aioredis.exceptions import WatchError
 
 from config import settings
 
+MAX_RETRIES = 5
+
 
 async def get_redis() -> aioredis.Redis:
     """Return a connected aioredis client. Call once at startup."""
@@ -40,9 +42,10 @@ async def check_rate_limit(redis: aioredis.Redis, client_id: str) -> Tuple[bool,
     """
     tokens_key = f"bucket:{client_id}:tokens"
     refill_key = f"bucket:{client_id}:last_refill"
+    key_ttl = int(settings.rate_limit_capacity / settings.rate_limit_refill_rate) + 60
 
     async with redis.pipeline(transaction=True) as pipe:
-        while True:
+        for _attempt in range(MAX_RETRIES):
             try:
                 await pipe.watch(tokens_key, refill_key)
 
@@ -67,12 +70,14 @@ async def check_rate_limit(redis: aioredis.Redis, client_id: str) -> Tuple[bool,
 
                 # Atomic write — EXEC fails if any watched key changed
                 pipe.multi()
-                pipe.set(tokens_key, tokens)
-                pipe.set(refill_key, now)
+                pipe.set(tokens_key, tokens, ex=key_ttl)
+                pipe.set(refill_key, now, ex=key_ttl)
                 await pipe.execute()
 
                 return allowed, tokens
 
             except WatchError:
-                # Another request modified the bucket between our read and write — retry
+                # Another request modified the bucket — retry
                 continue
+
+    raise RuntimeError(f"rate limit check failed after {MAX_RETRIES} retries")
