@@ -112,28 +112,37 @@ rate-limiter-analytics/
 
 ```
 main              ← stable, PRs only, never commit directly
-  └── feature/*   ← all new work happens here
+  └── <name>      ← all new work happens here
 ```
 
 - `main` is always deployable. Only merged via pull request.
-- `feature/<name>` branches are short-lived. One branch per feature/fix.
+- Feature branches are short-lived. One branch per feature/fix.
 - After PR merge, delete the feature branch.
 
 **Workflow for every task:**
 
-1. `git checkout -b feature/<name>` from `main`
+1. `git checkout -b <name>` from `main`
 2. Implement, commit often (short lowercase imperative messages)
-3. `git push -u origin feature/<name>`
+3. `git push -u origin <name>`
 4. Open PR via `gh pr create`
 5. Merge PR, delete branch
 
-**Branch naming examples:**
+**Branch naming:** Keep it short and casual, like a real person would type it.
+Don't use verbose or over-structured names. No `feature/` prefix needed.
 
-- `feature/kafka-producer`
-- `feature/faust-consumer`
-- `feature/circuit-breaker`
-- `feature/grafana-dashboard`
-- `feature/locust-load-tests`
+Good:
+
+- `fixes`
+- `kafka-stuff`
+- `locust-jwt`
+- `dashboard`
+- `load-tests`
+
+Bad (sounds like AI wrote it):
+
+- `feature/phase-a-fix-critical-pipeline`
+- `feature/implement-kafka-producer-integration`
+- `feature/grafana-dashboard-provisioning`
 
 ---
 
@@ -286,9 +295,10 @@ Phase 1 — Core gateway ✅
 
 - docker-compose.yml with Redis, Kafka, TimescaleDB, Grafana
 - FastAPI gateway with token bucket rate limiter
-- Mock upstream services
+- Mock upstream services (GET endpoints)
 - JWT auth middleware
 - Unit tests for rate limiter
+- Circuit breaker stub (implementation in Phase 3)
 
 Phase 2 — Analytics pipeline (current)
 
