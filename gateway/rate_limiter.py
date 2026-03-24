@@ -49,7 +49,6 @@ async def check_rate_limit(redis: aioredis.Redis, client_id: str) -> Tuple[bool,
             try:
                 await pipe.watch(tokens_key, refill_key)
 
-                # Immediate reads (before MULTI — pipeline is in buffered-off mode)
                 raw_tokens = await pipe.get(tokens_key)
                 raw_last_refill = await pipe.get(refill_key)
 
@@ -57,7 +56,6 @@ async def check_rate_limit(redis: aioredis.Redis, client_id: str) -> Tuple[bool,
                 tokens = float(raw_tokens) if raw_tokens is not None else settings.rate_limit_capacity
                 last_refill = float(raw_last_refill) if raw_last_refill is not None else now
 
-                # Refill: add tokens earned since last check, cap at capacity
                 elapsed = now - last_refill
                 tokens = min(
                     settings.rate_limit_capacity,
@@ -68,7 +66,6 @@ async def check_rate_limit(redis: aioredis.Redis, client_id: str) -> Tuple[bool,
                 if allowed:
                     tokens -= 1.0
 
-                # Atomic write — EXEC fails if any watched key changed
                 pipe.multi()
                 pipe.set(tokens_key, tokens, ex=key_ttl)
                 pipe.set(refill_key, now, ex=key_ttl)

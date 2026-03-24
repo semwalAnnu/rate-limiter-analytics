@@ -43,6 +43,9 @@ class _FakePipeline:
         # queue without awaiting — mirrors real pipeline behaviour after MULTI
         self._queued.append((key, str(value)))
 
+    def expire(self, key: str, seconds: int) -> None:
+        pass
+
     async def execute(self) -> list:
         for key, value in self._queued:
             self._store[key] = value
@@ -77,7 +80,7 @@ def test_tokens_decrease_on_allowed_request():
         allowed, tokens = asyncio.run(check_rate_limit(redis, "client_a"))
 
     assert allowed is True
-    assert tokens == pytest.approx(99.0)  # capacity(100) - 1
+    assert tokens == pytest.approx(99.0)
 
 
 def test_request_rejected_when_tokens_exhausted():
@@ -87,11 +90,11 @@ def test_request_rejected_when_tokens_exhausted():
     redis._store["bucket:client_b:last_refill"] = str(T0)
 
     with patch("rate_limiter.time") as mock_time:
-        mock_time.time.return_value = T0  # no time passes → no refill
+        mock_time.time.return_value = T0
         allowed, tokens = asyncio.run(check_rate_limit(redis, "client_b"))
 
     assert allowed is False
-    assert tokens == pytest.approx(0.5)  # unchanged — not consumed
+    assert tokens == pytest.approx(0.5)
 
 
 def test_tokens_refill_over_time():
@@ -101,11 +104,11 @@ def test_tokens_refill_over_time():
     redis._store["bucket:client_c:last_refill"] = str(T0)
 
     with patch("rate_limiter.time") as mock_time:
-        mock_time.time.return_value = T0 + 5.0  # 5 s × 10 tok/s = 50 new tokens
+        mock_time.time.return_value = T0 + 5.0
         allowed, tokens = asyncio.run(check_rate_limit(redis, "client_c"))
 
     assert allowed is True
-    assert tokens == pytest.approx(49.0)  # 50 refilled − 1 consumed
+    assert tokens == pytest.approx(49.0)
 
 
 def test_tokens_capped_at_capacity():
@@ -115,11 +118,12 @@ def test_tokens_capped_at_capacity():
     redis._store["bucket:client_d:last_refill"] = str(T0)
 
     with patch("rate_limiter.time") as mock_time:
-        mock_time.time.return_value = T0 + 100.0  # would give 1090 tokens without cap
+        mock_time.time.return_value = T0 + 100.0
         allowed, tokens = asyncio.run(check_rate_limit(redis, "client_d"))
 
     assert allowed is True
-    assert tokens == pytest.approx(99.0)  # capped at 100, minus 1 consumed
+    assert tokens == pytest.approx(99.0)
+
 
 def test_different_clients_are_independent():
     redis = FakeRedis()

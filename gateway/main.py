@@ -15,6 +15,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 
 from auth import get_client_id
 from config import settings
+from kafka_producer import get_producer, publish_event
+from models import RequestEvent
 from rate_limiter import check_rate_limit, get_redis
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,9 @@ async def lifespan(app: FastAPI):
     yield
     await app.state.http_client.aclose()
     await app.state.redis.aclose()
+    if app.state.producer:
+        await app.state.producer.flush()
+        await app.state.producer.stop()
 
 
 app = FastAPI(title="Rate Limiter Gateway", lifespan=lifespan)
@@ -57,7 +62,15 @@ async def proxy(
         raise HTTPException(status_code=503, detail="rate limiter unavailable")
 
     if not allowed:
-        # Phase 2: publish rejection event to Kafka here
+        event = RequestEvent(
+            client_id=client_id,
+            endpoint=path,
+            method=request.method,
+            status="rejected",
+            latency_ms=0.0,
+            tokens_remaining=tokens,
+        )
+        await publish_event(request.app.state.producer, event)
         raise HTTPException(
             status_code=429,
             detail={
