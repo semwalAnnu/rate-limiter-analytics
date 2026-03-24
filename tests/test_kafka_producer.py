@@ -33,7 +33,7 @@ def test_get_producer_passes_config():
         asyncio.run(get_producer())
     call_kwargs = mock_cls.call_args.kwargs
     assert "bootstrap_servers" in call_kwargs
-    assert call_kwargs["acks"] == "all"
+    assert call_kwargs["acks"] == 1
 
 
 def test_publish_event_sends_json():

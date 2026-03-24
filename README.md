@@ -30,13 +30,13 @@ docker compose up -d
 ## Running Tests
 
 ```bash
-pytest tests/ -v
+docker compose run --rm test
 ```
 
 ## Load Testing
 
 ```bash
-cd load_tests && locust --host=http://localhost:8000
+cd load_tests && pip install -r requirements.txt && locust --host=http://localhost:8000
 ```
 
 ## Benchmark Results

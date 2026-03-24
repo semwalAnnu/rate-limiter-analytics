@@ -359,10 +359,10 @@ cd consumer && python app.py worker -l info
 cd load_tests && locust --host=http://localhost:8000
 
 # Run tests
-pytest tests/ -v
+docker compose run --rm test
 
-# Start Jupyter
-jupyter notebook notebooks/
+# Start Jupyter (via docker compose)
+docker compose up jupyter
 ```
 
 ---
