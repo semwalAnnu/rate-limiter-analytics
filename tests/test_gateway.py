@@ -12,6 +12,7 @@ import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from jose import jwt
@@ -75,15 +76,14 @@ def test_allowed_request_proxied_to_upstream():
         app.dependency_overrides[get_client_id] = lambda: CLIENT_ID
         try:
             with patch("main.check_rate_limit", new=AsyncMock(return_value=(True, 95.0))):
-                with patch("httpx.AsyncClient") as mock_cls:
-                    mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
-                    mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
-                    with TestClient(app) as c:
-                        response = c.get("/api/v1/products")
+                with TestClient(app) as c:
+                    app.state.http_client = mock_http
+                    response = c.get("/api/v1/products")
         finally:
             app.dependency_overrides.clear()
 
     assert response.status_code == 200
+    mock_http.request.assert_called_once()
 
 
 def test_rate_limited_request_returns_429():
@@ -98,3 +98,53 @@ def test_rate_limited_request_returns_429():
             app.dependency_overrides.clear()
 
     assert response.status_code == 429
+
+
+def test_upstream_unreachable_returns_502():
+    """When upstream refuses connection, gateway returns 502."""
+    mock_http = AsyncMock()
+    mock_http.request = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
+
+    with patch("main.get_redis", new=AsyncMock(return_value=AsyncMock())):
+        app.dependency_overrides[get_client_id] = lambda: CLIENT_ID
+        try:
+            with patch("main.check_rate_limit", new=AsyncMock(return_value=(True, 95.0))):
+                with TestClient(app) as c:
+                    app.state.http_client = mock_http
+                    response = c.get("/api/v1/products")
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+
+
+def test_upstream_timeout_returns_504():
+    """When upstream times out, gateway returns 504."""
+    mock_http = AsyncMock()
+    mock_http.request = AsyncMock(side_effect=httpx.ReadTimeout("read timed out"))
+
+    with patch("main.get_redis", new=AsyncMock(return_value=AsyncMock())):
+        app.dependency_overrides[get_client_id] = lambda: CLIENT_ID
+        try:
+            with patch("main.check_rate_limit", new=AsyncMock(return_value=(True, 95.0))):
+                with TestClient(app) as c:
+                    app.state.http_client = mock_http
+                    response = c.get("/api/v1/products")
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 504
+
+
+def test_redis_down_returns_503():
+    """When Redis is unreachable during rate limiting, gateway returns 503."""
+    with patch("main.get_redis", new=AsyncMock(return_value=AsyncMock())):
+        app.dependency_overrides[get_client_id] = lambda: CLIENT_ID
+        try:
+            with patch("main.check_rate_limit", new=AsyncMock(side_effect=ConnectionError("Redis down"))):
+                with TestClient(app) as c:
+                    response = c.get("/api/v1/products")
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 503

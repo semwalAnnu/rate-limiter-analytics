@@ -6,6 +6,7 @@ Every request: validate JWT → check rate limit → proxy to upstream →
 """
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import asynccontextmanager
 
@@ -16,12 +17,20 @@ from auth import get_client_id
 from config import settings
 from rate_limiter import check_rate_limit, get_redis
 
+logger = logging.getLogger(__name__)
+
+STRIP_HEADERS = {"host", "authorization", "cookie"}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = await get_redis()
+    app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0),
+    )
     app.state.producer = None  # Phase 2: Kafka producer
     yield
+    await app.state.http_client.aclose()
     await app.state.redis.aclose()
 
 
@@ -40,7 +49,12 @@ async def proxy(
     client_id: str = Depends(get_client_id),
 ) -> Response:
     redis = request.app.state.redis
-    allowed, tokens = await check_rate_limit(redis, client_id)
+
+    try:
+        allowed, tokens = await check_rate_limit(redis, client_id)
+    except Exception:
+        logger.exception("redis error during rate limit check")
+        raise HTTPException(status_code=503, detail="rate limiter unavailable")
 
     if not allowed:
         # Phase 2: publish rejection event to Kafka here
@@ -53,14 +67,19 @@ async def proxy(
         )
 
     start = time.monotonic()
-    async with httpx.AsyncClient() as client:
-        upstream_response = await client.request(
+    try:
+        upstream_response = await request.app.state.http_client.request(
             method=request.method,
             url=f"{settings.upstream_url}/{path}",
-            headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
+            headers={k: v for k, v in request.headers.items() if k.lower() not in STRIP_HEADERS},
             content=await request.body(),
             params=dict(request.query_params),
         )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="upstream timeout")
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="upstream unreachable")
+
     latency_ms = (time.monotonic() - start) * 1000  # noqa: F841 — Phase 2: include in event
 
     # Phase 2: publish allowed event to Kafka here

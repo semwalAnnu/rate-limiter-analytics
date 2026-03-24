@@ -35,13 +35,18 @@ sys.modules["config"] = _mock_config
 # gateway/ is a sibling of tests/ — add it so we can import rate_limiter directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "gateway"))
 
+import rate_limiter as _rl  # noqa: E402
 from rate_limiter import check_rate_limit  # noqa: E402  (must come after sys.path)
+
+# Use the exact WatchError class that rate_limiter imported (avoids cross-module mock issues)
+WatchError = _rl.WatchError
 
 # Fixed "now" used across all tests so time never drifts
 T0 = 1_000_000.0
 
 
 # ── Fake Redis ────────────────────────────────────────────────────────────────
+
 
 class _FakePipeline:
     """Minimal async pipeline that replays WATCH/MULTI/EXEC against an in-memory dict."""
@@ -59,7 +64,7 @@ class _FakePipeline:
     def multi(self) -> None:
         self._queued = []
 
-    def set(self, key: str, value: object) -> None:
+    def set(self, key: str, value: object, ex: int | None = None) -> None:
         # queue without awaiting — mirrors real pipeline behaviour after MULTI
         self._queued.append((key, str(value)))
 
@@ -166,3 +171,40 @@ def test_different_clients_are_independent():
         )
         assert allowed_d2 is False
         assert tokens_d2 == pytest.approx(0.0)
+
+
+def test_watcherror_retry_succeeds():
+    """Rate limiter retries and succeeds after a WatchError on first attempt."""
+    redis = FakeRedis()
+    call_count = 0
+    original_execute = _FakePipeline.execute
+
+    async def flaky_execute(self):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise WatchError()
+        return await original_execute(self)
+
+    with patch("rate_limiter.time") as mock_time:
+        mock_time.time.return_value = T0
+        with patch.object(_FakePipeline, "execute", flaky_execute):
+            allowed, tokens = asyncio.run(check_rate_limit(redis, "client_f"))
+
+    assert allowed is True
+    assert tokens == pytest.approx(99.0)
+    assert call_count == 2
+
+
+def test_watcherror_exhausts_max_retries():
+    """Rate limiter raises after exhausting all retry attempts."""
+    redis = FakeRedis()
+
+    async def always_fail(self):
+        raise WatchError()
+
+    with patch("rate_limiter.time") as mock_time:
+        mock_time.time.return_value = T0
+        with patch.object(_FakePipeline, "execute", always_fail):
+            with pytest.raises(RuntimeError, match="rate limit check failed"):
+                asyncio.run(check_rate_limit(redis, "client_g"))
