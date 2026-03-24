@@ -9,12 +9,17 @@ Profiles:
 """
 from __future__ import annotations
 
+import os
+
+from jose import jwt
 from locust import HttpUser, between, task
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production")
 
 
 def _auth_header(client_id: str) -> dict:
-    # TODO: generate a real JWT once auth.py is implemented
-    return {"X-API-Key": client_id}
+    token = jwt.encode({"sub": client_id}, JWT_SECRET, algorithm="HS256")
+    return {"Authorization": f"Bearer {token}"}
 
 
 class NormalUser(HttpUser):
