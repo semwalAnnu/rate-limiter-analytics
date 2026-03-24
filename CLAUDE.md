@@ -9,7 +9,7 @@ pipeline visualised in Grafana. A Jupyter notebook provides batch analytics on t
 
 The project serves two resume purposes:
 
-- Backend/SWE story: the gateway, rate limiting algorithm, Redis, circuit breaker, load test results
+- Backend/SWE story: the gateway, rate limiting algorithm, Redis, per-endpoint circuit breaker, load test results
 - Data/analytics story: the Kafka pipeline, stream processing, TimescaleDB, Grafana dashboard, Jupyter analysis
 
 ---
@@ -67,7 +67,7 @@ rate-limiter-analytics/
 │   ├── requirements.txt
 │   ├── main.py                 ← FastAPI app entry point
 │   ├── rate_limiter.py         ← token bucket logic (Redis-backed)
-│   ├── circuit_breaker.py      ← circuit breaker implementation
+│   ├── circuit_breaker.py      ← per-endpoint circuit breaker (CLOSED → OPEN → HALF_OPEN)
 │   ├── auth.py                 ← JWT validation middleware
 │   ├── kafka_producer.py       ← publishes request events to Kafka
 │   ├── models.py               ← Pydantic request/response models
@@ -310,7 +310,7 @@ Phase 2 — Analytics pipeline (current)
 Phase 3 — Polish + benchmarks
 
 - Locust load tests + benchmark results
-- Circuit breaker
+- Per-endpoint circuit breaker (CLOSED → OPEN after 5 failures → HALF_OPEN after 30s → CLOSED)
 - Jupyter analysis notebook
 - README with architecture diagram, setup instructions, benchmark numbers
 - Recorded demo (Loom or similar)

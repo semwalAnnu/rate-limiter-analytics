@@ -1,8 +1,8 @@
 """FastAPI gateway entry point.
 
 Startup: connect Redis, start Kafka producer.
-Every request: validate JWT → check rate limit → proxy to upstream →
-               publish event to Kafka.
+Every request: validate JWT → check rate limit → check circuit breaker →
+               proxy to upstream → publish event to Kafka.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 
 from auth import get_client_id
+from circuit_breaker import CircuitBreaker
 from config import settings
 from kafka_producer import get_producer, publish_event
 from models import RequestEvent
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0),
     )
+    app.state.breakers: dict[str, CircuitBreaker] = {}
     try:
         app.state.producer = await get_producer()
         logger.info("kafka producer started")
@@ -84,6 +86,23 @@ async def proxy(
             },
         )
 
+    breakers = request.app.state.breakers
+    if path not in breakers:
+        breakers[path] = CircuitBreaker()
+    breaker = breakers[path]
+
+    if breaker.is_open:
+        event = RequestEvent(
+            client_id=client_id,
+            endpoint=path,
+            method=request.method,
+            status="circuit_open",
+            latency_ms=0.0,
+            tokens_remaining=tokens,
+        )
+        await publish_event(request.app.state.producer, event)
+        raise HTTPException(status_code=503, detail="circuit breaker open")
+
     start = time.monotonic()
     try:
         upstream_response = await request.app.state.http_client.request(
@@ -94,11 +113,18 @@ async def proxy(
             params=dict(request.query_params),
         )
     except httpx.TimeoutException:
+        breaker.record_failure()
         raise HTTPException(status_code=504, detail="upstream timeout")
     except httpx.HTTPError:
+        breaker.record_failure()
         raise HTTPException(status_code=502, detail="upstream unreachable")
 
     latency_ms = (time.monotonic() - start) * 1000
+
+    if upstream_response.status_code >= 500:
+        breaker.record_failure()
+    else:
+        breaker.record_success()
 
     event = RequestEvent(
         client_id=client_id,

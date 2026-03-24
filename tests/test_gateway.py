@@ -161,6 +161,35 @@ def test_rejected_request_publishes_event():
     assert event.client_id == "rej-client"
 
 
+def test_circuit_breaker_opens_after_upstream_failures():
+    """After repeated upstream 5xx, circuit breaker trips and returns 503."""
+    mock_http = AsyncMock()
+    mock_http.request = AsyncMock(return_value=_fake_upstream(500))
+
+    with patch("main.get_redis", return_value=AsyncMock()):
+        app.dependency_overrides[get_client_id] = lambda: CLIENT_ID
+        try:
+            with patch("main.check_rate_limit", new=AsyncMock(return_value=(True, 95.0))):
+                with patch("main.publish_event", new_callable=AsyncMock) as mock_publish:
+                    with TestClient(app) as c:
+                        app.state.http_client = mock_http
+                        # clear any existing breakers from previous tests
+                        app.state.breakers = {}
+                        # 5 failures to trip the breaker
+                        for _ in range(5):
+                            resp = c.get("/api/v1/cbtest")
+                            assert resp.status_code == 500
+                        # next request should be blocked by circuit breaker
+                        resp = c.get("/api/v1/cbtest")
+                        assert resp.status_code == 503
+
+                        # check the last event was circuit_open
+                        last_event = mock_publish.call_args[0][1]
+                        assert last_event.status == "circuit_open"
+        finally:
+            app.dependency_overrides.clear()
+
+
 def test_redis_down_returns_503():
     """When Redis is unreachable during rate limiting, gateway returns 503."""
     with patch("main.get_redis", return_value=AsyncMock()):

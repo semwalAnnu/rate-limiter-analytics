@@ -1,6 +1,6 @@
 # Rate Limiter + Real-Time Analytics Platform
 
-A Python API gateway with token-bucket rate limiting backed by Redis, streaming all request events through Kafka → Faust → TimescaleDB → Grafana.
+A Python API gateway with token-bucket rate limiting and per-endpoint circuit breaker, backed by Redis. Streams all request events through Kafka → Faust → TimescaleDB → Grafana.
 
 ## Architecture
 
