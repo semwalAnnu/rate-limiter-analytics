@@ -5,48 +5,23 @@ so no real Redis instance is needed. Time is patched to make
 token refill calculations deterministic.
 
 Run:
-    pytest tests/test_rate_limiter.py -v
+    docker compose run --rm test pytest tests/test_rate_limiter.py -v
 """
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ── Stub heavy dependencies before importing rate_limiter
-_mock_exc = MagicMock()
-_mock_exc.WatchError = type("WatchError", (Exception,), {})
-sys.modules.setdefault("aioredis", MagicMock())
-sys.modules["aioredis.exceptions"] = _mock_exc
-
-# config.settings reads .env at import time; the .env has Grafana keys that
-# pydantic-settings rejects as extra fields. Provide a clean stub instead.
-_mock_settings = MagicMock()
-_mock_settings.rate_limit_capacity = 100.0
-_mock_settings.rate_limit_refill_rate = 10.0
-_mock_config = MagicMock()
-_mock_config.settings = _mock_settings
-sys.modules["config"] = _mock_config
-
-# gateway/ is a sibling of tests/ — add it so we can import rate_limiter directly
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "gateway"))
-
-import rate_limiter as _rl  # noqa: E402
-from rate_limiter import check_rate_limit  # noqa: E402  (must come after sys.path)
-
-# Use the exact WatchError class that rate_limiter imported (avoids cross-module mock issues)
-WatchError = _rl.WatchError
+from redis.exceptions import WatchError
+from rate_limiter import check_rate_limit
 
 # Fixed "now" used across all tests so time never drifts
 T0 = 1_000_000.0
 
 
 # ── Fake Redis ────────────────────────────────────────────────────────────────
-
 
 class _FakePipeline:
     """Minimal async pipeline that replays WATCH/MULTI/EXEC against an in-memory dict."""
@@ -157,13 +132,13 @@ def test_different_clients_are_independent():
         allowed_d, tokens_d = asyncio.run(
             check_rate_limit(redis, "client_d")
         )
-        assert allowed_d is False 
+        assert allowed_d is False
         assert tokens_d == pytest.approx(0.0)
 
         allowed_e, tokens_e = asyncio.run(
             check_rate_limit(redis, "client_e")
         )
-        assert allowed_e is True 
+        assert allowed_e is True
         assert tokens_e == pytest.approx(99.0)
 
         allowed_d2, tokens_d2 = asyncio.run(

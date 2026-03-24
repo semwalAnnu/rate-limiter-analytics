@@ -24,7 +24,7 @@ STRIP_HEADERS = {"host", "authorization", "cookie"}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.redis = await get_redis()
+    app.state.redis = get_redis()
     app.state.http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0),
     )

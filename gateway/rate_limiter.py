@@ -1,4 +1,4 @@
-"""Token bucket rate limiter backed by Redis (aioredis).
+"""Token bucket rate limiter backed by Redis.
 
 Each client gets two Redis keys:
   bucket:{client_id}:tokens      — current token count (float)
@@ -12,17 +12,17 @@ from __future__ import annotations
 import time
 from typing import Tuple
 
-import aioredis
-from aioredis.exceptions import WatchError
+import redis.asyncio as aioredis
+from redis.exceptions import WatchError
 
 from config import settings
 
 MAX_RETRIES = 5
 
 
-async def get_redis() -> aioredis.Redis:
-    """Return a connected aioredis client. Call once at startup."""
-    return await aioredis.from_url(
+def get_redis() -> aioredis.Redis:
+    """Return an async Redis client. Call once at startup."""
+    return aioredis.from_url(
         settings.redis_url,
         encoding="utf-8",
         decode_responses=True,
