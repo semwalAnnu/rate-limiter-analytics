@@ -30,12 +30,7 @@ async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0),
     )
-    try:
-        app.state.producer = await get_producer()
-        logger.info("kafka producer started")
-    except Exception:
-        logger.warning("kafka unavailable, running without event publishing")
-        app.state.producer = None
+    app.state.producer = None  # Phase 2: Kafka producer
     yield
     await app.state.http_client.aclose()
     await app.state.redis.aclose()
@@ -98,18 +93,9 @@ async def proxy(
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="upstream unreachable")
 
-    latency_ms = (time.monotonic() - start) * 1000
+    latency_ms = (time.monotonic() - start) * 1000  # noqa: F841 — Phase 2: include in event
 
-    event = RequestEvent(
-        client_id=client_id,
-        endpoint=path,
-        method=request.method,
-        status="allowed",
-        latency_ms=latency_ms,
-        tokens_remaining=tokens,
-        upstream_status=upstream_response.status_code,
-    )
-    await publish_event(request.app.state.producer, event)
+    # Phase 2: publish allowed event to Kafka here
 
     return Response(
         content=upstream_response.content,

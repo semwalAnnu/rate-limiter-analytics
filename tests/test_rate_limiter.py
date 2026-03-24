@@ -40,6 +40,7 @@ class _FakePipeline:
         self._queued = []
 
     def set(self, key: str, value: object, ex: int | None = None) -> None:
+        # queue without awaiting — mirrors real pipeline behaviour after MULTI
         self._queued.append((key, str(value)))
 
     def expire(self, key: str, seconds: int) -> None:

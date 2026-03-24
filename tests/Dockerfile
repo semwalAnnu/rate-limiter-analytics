@@ -7,9 +7,8 @@ RUN pip install --no-cache-dir -r /app/gateway-requirements.txt pytest
 
 # Copy source and tests
 COPY gateway/ /app/gateway/
-COPY consumer/ /app/consumer/
 COPY tests/ /app/tests/
 
-ENV PYTHONPATH=/app/gateway:/app/consumer
+ENV PYTHONPATH=/app/gateway
 
 CMD ["pytest", "tests/", "-v"]
