@@ -127,6 +127,7 @@ services:
     environment:
       JUPYTER_ENABLE_LAB: "yes"
       TIMESCALE_URL: ${TIMESCALE_URL:-postgresql://metrics_user:metrics_pass@timescaledb:5432/metrics}
+    command: bash -c "pip install -q psycopg2-binary && start-notebook.py"
 
 volumes:
   timescale_data:
