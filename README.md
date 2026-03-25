@@ -21,14 +21,17 @@ Clients (Locust)
 
 ```bash
 cp .env.example .env
+docker compose build
 docker compose up -d
 ```
 
-| Service    | URL                          | Notes            |
-|------------|------------------------------|------------------|
-| Gateway    | http://localhost:8000         |                  |
-| Grafana    | http://localhost:3000         | admin / admin    |
-| Jupyter    | http://localhost:8888         |                  |
+| Service    | URL                          | Credentials        |
+|------------|------------------------------|--------------------|
+| Gateway    | http://localhost:8000         |                    |
+| Grafana    | http://localhost:3000         | admin / admin      |
+| Jupyter    | http://localhost:8888         | token: `analytics` |
+
+For detailed setup instructions, troubleshooting, and how to run every component, see [SETUP.md](SETUP.md).                  |
 
 ## Building
 
