@@ -43,6 +43,9 @@ async def on_started():
 async def process_events(events):
     """Consume request events: write raw rows and flush rollups."""
     async for event in events:
+        if db_pool is None:
+            logger.warning("db pool not ready, skipping event")
+            continue
         try:
             await insert_raw_event(db_pool, event)
         except Exception:
@@ -59,21 +62,6 @@ async def process_events(events):
                 logger.info("flushed %d rollup rows", len(completed))
             except Exception:
                 logger.exception("failed to flush rollups")
-
-
-@app.on_shutdown.connect
-async def on_shutdown(sender, **kwargs):
-    """Flush remaining aggregates and close the DB pool on shutdown."""
-    global db_pool
-    if db_pool:
-        now = datetime.now(timezone.utc).replace(year=2099).isoformat()
-        remaining = aggregator.flush_completed(now)
-        if remaining:
-            try:
-                await flush_rollups(db_pool, remaining)
-            except Exception:
-                logger.exception("failed to flush remaining rollups on shutdown")
-        await db_pool.close()
 
 
 if __name__ == "__main__":

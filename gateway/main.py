@@ -107,7 +107,7 @@ async def proxy(
     try:
         upstream_response = await request.app.state.http_client.request(
             method=request.method,
-            url=f"{settings.upstream_url}/{path}",
+            url=f"{settings.upstream_url}/api/v1/{path}",
             headers={k: v for k, v in request.headers.items() if k.lower() not in STRIP_HEADERS},
             content=await request.body(),
             params=dict(request.query_params),

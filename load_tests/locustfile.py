@@ -1,7 +1,7 @@
 """Locust load test simulating multiple client profiles.
 
 Run:
-    locust --host=http://localhost:8000
+    docker compose run --rm locust --host=http://gateway:8000 --users 500 --spawn-rate 50 --run-time 5m --headless
 
 Profiles:
   - NormalUser:    moderate traffic, stays within rate limit
@@ -9,12 +9,16 @@ Profiles:
 """
 from __future__ import annotations
 
+import itertools
 import os
 
 from jose import jwt
 from locust import HttpUser, between, task
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production")
+
+_normal_counter = itertools.count()
+_aggressive_counter = itertools.count()
 
 
 def _auth_header(client_id: str) -> dict:
@@ -26,21 +30,22 @@ class NormalUser(HttpUser):
     wait_time = between(0.1, 0.5)
     weight = 4
 
+    def on_start(self):
+        self._client_id = f"normal-{next(_normal_counter) % 50}"
+
     @task(3)
     def get_products(self):
-        client_id = f"normal-{self.user_id % 50}"
         self.client.get(
             "/api/v1/products",
-            headers=_auth_header(client_id),
+            headers=_auth_header(self._client_id),
             name="/api/v1/products",
         )
 
     @task(1)
     def get_orders(self):
-        client_id = f"normal-{self.user_id % 50}"
         self.client.get(
             "/api/v1/orders",
-            headers=_auth_header(client_id),
+            headers=_auth_header(self._client_id),
             name="/api/v1/orders",
         )
 
@@ -49,11 +54,13 @@ class AggressiveUser(HttpUser):
     wait_time = between(0.001, 0.01)
     weight = 1
 
+    def on_start(self):
+        self._client_id = f"aggressive-{next(_aggressive_counter) % 5}"
+
     @task
     def hammer_products(self):
-        client_id = f"aggressive-{self.user_id % 5}"
         self.client.get(
             "/api/v1/products",
-            headers=_auth_header(client_id),
+            headers=_auth_header(self._client_id),
             name="/api/v1/products [aggressive]",
         )

@@ -110,6 +110,14 @@ services:
     env_file: .env
     profiles: ["test"]
 
+  locust:
+    build: ./load_tests
+    networks: [frontend]
+    ports: ["8089:8089"]
+    depends_on: [gateway]
+    env_file: .env
+    profiles: ["loadtest"]
+
   jupyter:
     image: jupyter/scipy-notebook:latest
     networks: [backend]

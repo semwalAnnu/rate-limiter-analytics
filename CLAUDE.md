@@ -365,8 +365,8 @@ cd gateway && uvicorn main:app --reload --port 8000
 # Run Faust consumer locally
 cd consumer && python app.py worker -l info
 
-# Run load tests
-cd load_tests && locust --host=http://localhost:8000
+# Run load tests (headless, 500 users, 5 min)
+docker compose run --rm locust --host=http://gateway:8000 --users 500 --spawn-rate 50 --run-time 5m --headless
 
 # Run tests
 docker compose run --rm test
