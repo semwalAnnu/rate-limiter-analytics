@@ -79,14 +79,15 @@ curl http://localhost:8000/health
 Send an authenticated request:
 
 ```bash
-TOKEN=$(python3 -c "from jose import jwt; print(jwt.encode({'sub': 'test-client'}, 'change-me-in-production', algorithm='HS256'))")
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/products
+TOKEN=$(docker compose run --rm test python -c "import jwt, time; print(jwt.encode({'sub': 'test-client', 'exp': int(time.time()) + 3600},    
+  'change-me-in-production', algorithm='HS256'))")                                                                                              
+  curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/products  
 ```
 
-You should get back a JSON product list. If you don't have `python-jose` installed locally, you can generate the token inside Docker:
+You should get back a JSON product list. If you don't have `PyJWT` installed locally, you can generate the token inside Docker:
 
 ```bash
-TOKEN=$(docker compose run --rm test python -c "from jose import jwt; print(jwt.encode({'sub': 'test-client'}, 'change-me-in-production', algorithm='HS256'))")
+TOKEN=$(docker compose run --rm test python -c "import jwt, time; print(jwt.encode({'sub': 'test-client', 'exp': int(time.time()) + 3600}, 'change-me-in-production', algorithm='HS256'))")
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/products
 ```
 

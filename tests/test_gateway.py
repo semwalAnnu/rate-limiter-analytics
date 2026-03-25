@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from jose import jwt
+import jwt
 
 from auth import get_client_id
 from main import app

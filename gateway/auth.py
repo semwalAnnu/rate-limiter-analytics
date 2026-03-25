@@ -5,10 +5,15 @@ Extracts client_id from the 'sub' claim.
 """
 from __future__ import annotations
 
+import re
+
+import jwt
 from fastapi import Header, HTTPException
-from jose import JWTError, jwt
 
 from config import settings
+
+MAX_CLIENT_ID_LENGTH = 128
+CLIENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 
 async def get_client_id(authorization: str | None = Header(None)) -> str:
@@ -25,12 +30,20 @@ async def get_client_id(authorization: str | None = Header(None)) -> str:
 
     token = parts[1]
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
-    except JWTError:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=["HS256"],
+            options={"require": ["exp", "sub"]},
+        )
+    except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     client_id = payload.get("sub")
     if not client_id:
         raise HTTPException(status_code=401, detail="Token missing subject claim")
+
+    if len(client_id) > MAX_CLIENT_ID_LENGTH or not CLIENT_ID_PATTERN.match(client_id):
+        raise HTTPException(status_code=401, detail="Invalid client_id format")
 
     return client_id

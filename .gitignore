@@ -29,6 +29,7 @@ env/
 .claude/
 CLAUDE.md
 docs/superpowers/
+SETUP.md
 
 # Docker
 *.log

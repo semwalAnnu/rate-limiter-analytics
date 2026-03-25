@@ -1,7 +1,7 @@
 """Unit tests for JWT authentication middleware.
 
 Calls get_client_id() directly (bypassing FastAPI's DI) so no running server
-is needed. python-jose is used to mint test tokens.
+is needed. PyJWT is used to mint test tokens.
 
 Run:
     docker compose run --rm test pytest tests/test_auth.py -v
@@ -9,11 +9,12 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
 from fastapi import HTTPException
-from jose import jwt
 
 from auth import get_client_id
 from config import settings
@@ -27,14 +28,18 @@ def _token(payload: dict, secret: str = SECRET) -> str:
     return jwt.encode(payload, secret, algorithm=ALGORITHM)
 
 
+def _valid_payload(sub: str = "client_abc") -> dict:
+    return {"sub": sub, "exp": int(time.time()) + 3600}
+
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 def test_valid_token_returns_client_id():
-    """A well-formed Bearer JWT with a 'sub' claim returns the client_id."""
+    """A well-formed Bearer JWT with 'sub' and 'exp' claims returns the client_id."""
     original_secret = settings.jwt_secret
     settings.jwt_secret = SECRET
     try:
-        token = _token({"sub": "client_abc"})
+        token = _token(_valid_payload("client_abc"))
         result = asyncio.run(get_client_id(authorization=f"Bearer {token}"))
     finally:
         settings.jwt_secret = original_secret
@@ -64,9 +69,17 @@ def test_expired_token_raises_401():
     assert exc.value.status_code == 401
 
 
+def test_token_without_exp_raises_401():
+    """A JWT missing the 'exp' claim → HTTP 401."""
+    token = _token({"sub": "client_abc"})
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(get_client_id(authorization=f"Bearer {token}"))
+    assert exc.value.status_code == 401
+
+
 def test_token_without_sub_raises_401():
     """A valid JWT that is missing the 'sub' claim → HTTP 401."""
-    token = _token({"iss": "test-issuer"})
+    token = _token({"exp": int(time.time()) + 3600})
     with pytest.raises(HTTPException) as exc:
         asyncio.run(get_client_id(authorization=f"Bearer {token}"))
     assert exc.value.status_code == 401
@@ -74,7 +87,33 @@ def test_token_without_sub_raises_401():
 
 def test_wrong_secret_raises_401():
     """A JWT signed with the wrong secret → HTTP 401."""
-    token = _token({"sub": "client_abc"}, secret=WRONG_SECRET)
+    token = _token(_valid_payload(), secret=WRONG_SECRET)
     with pytest.raises(HTTPException) as exc:
         asyncio.run(get_client_id(authorization=f"Bearer {token}"))
     assert exc.value.status_code == 401
+
+
+def test_invalid_client_id_format_raises_401():
+    """A JWT with a client_id containing invalid characters → HTTP 401."""
+    original_secret = settings.jwt_secret
+    settings.jwt_secret = SECRET
+    try:
+        token = _token({"sub": "client:with:colons", "exp": int(time.time()) + 3600})
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(get_client_id(authorization=f"Bearer {token}"))
+        assert exc.value.status_code == 401
+    finally:
+        settings.jwt_secret = original_secret
+
+
+def test_oversized_client_id_raises_401():
+    """A JWT with an excessively long client_id → HTTP 401."""
+    original_secret = settings.jwt_secret
+    settings.jwt_secret = SECRET
+    try:
+        token = _token({"sub": "a" * 200, "exp": int(time.time()) + 3600})
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(get_client_id(authorization=f"Bearer {token}"))
+        assert exc.value.status_code == 401
+    finally:
+        settings.jwt_secret = original_secret

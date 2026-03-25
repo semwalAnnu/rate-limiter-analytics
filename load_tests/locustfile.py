@@ -12,17 +12,21 @@ from __future__ import annotations
 import itertools
 import os
 
-from jose import jwt
+import time
+
+import jwt
 from locust import HttpUser, between, task
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production")
+TOKEN_TTL = 3600  # 1 hour
 
 _normal_counter = itertools.count()
 _aggressive_counter = itertools.count()
 
 
 def _auth_header(client_id: str) -> dict:
-    token = jwt.encode({"sub": client_id}, JWT_SECRET, algorithm="HS256")
+    payload = {"sub": client_id, "exp": int(time.time()) + TOKEN_TTL}
+    token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
     return {"Authorization": f"Bearer {token}"}
 
 

@@ -1,4 +1,10 @@
+import logging
+
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_SECRET = "change-me-in-production"
 
 
 class Settings(BaseSettings):
@@ -8,7 +14,7 @@ class Settings(BaseSettings):
     timescale_url: str = "postgresql://metrics_user:metrics_pass@localhost:5432/metrics"
     rate_limit_capacity: float = 100.0
     rate_limit_refill_rate: float = 10.0  # tokens per second
-    jwt_secret: str = "change-me-in-production"
+    jwt_secret: str = _DEFAULT_SECRET
     upstream_url: str = "http://localhost:8001"
 
     class Config:
@@ -17,3 +23,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.jwt_secret == _DEFAULT_SECRET:
+    logger.warning(
+        "JWT_SECRET is still the default value — set a real secret via .env or environment variable"
+    )

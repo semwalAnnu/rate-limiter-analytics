@@ -123,7 +123,7 @@ docker compose logs -f consumer
 Send a test request:
 
 ```bash
-TOKEN=$(python3 -c "from jose import jwt; print(jwt.encode({'sub': 'test-client'}, 'change-me-in-production', algorithm='HS256'))")
+TOKEN=$(python3 -c "import jwt, time; print(jwt.encode({'sub': 'test-client', 'exp': int(time.time()) + 3600}, 'change-me-in-production', algorithm='HS256'))")
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/products
 ```
 

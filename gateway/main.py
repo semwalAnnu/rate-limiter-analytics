@@ -60,6 +60,9 @@ async def proxy(
     request: Request,
     client_id: str = Depends(get_client_id),
 ) -> Response:
+    if ".." in path or path.startswith("/"):
+        raise HTTPException(status_code=400, detail="invalid path")
+
     redis = request.app.state.redis
 
     try:

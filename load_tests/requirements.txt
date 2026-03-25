@@ -1,2 +1,2 @@
 locust==2.24.0
-python-jose[cryptography]==3.3.0
+PyJWT[crypto]==2.9.0
