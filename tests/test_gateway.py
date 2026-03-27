@@ -190,15 +190,21 @@ def test_circuit_breaker_opens_after_upstream_failures():
             app.dependency_overrides.clear()
 
 
-def test_redis_down_returns_503():
-    """When Redis is unreachable during rate limiting, gateway returns 503."""
+def test_redis_down_fails_open():
+    """When Redis is unreachable, gateway fails open (allows the request through)."""
+    mock_http = AsyncMock()
+    mock_http.request = AsyncMock(return_value=_fake_upstream(200))
+
     with patch("main.get_redis", return_value=AsyncMock()):
         app.dependency_overrides[get_client_id] = lambda: CLIENT_ID
         try:
-            with patch("main.check_rate_limit", new=AsyncMock(side_effect=ConnectionError("Redis down"))):
+            # check_rate_limit returns (True, -1.0) when Redis is down (fail-open)
+            with patch("main.check_rate_limit", new=AsyncMock(return_value=(True, -1.0))):
                 with TestClient(app) as c:
+                    app.state.http_client = mock_http
                     response = c.get("/api/v1/products")
         finally:
             app.dependency_overrides.clear()
 
-    assert response.status_code == 503
+    assert response.status_code == 200
+    mock_http.request.assert_called_once()

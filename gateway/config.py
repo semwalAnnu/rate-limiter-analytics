@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     timescale_url: str = "postgresql://metrics_user:metrics_pass@localhost:5432/metrics"
     rate_limit_capacity: float = 100.0
     rate_limit_refill_rate: float = 10.0  # tokens per second
+    rate_limit_algorithm: str = "token_bucket"  # token_bucket or sliding_window
+    rate_limit_window_seconds: float = 10.0  # sliding window duration
     jwt_secret: str = _DEFAULT_SECRET
     upstream_url: str = "http://localhost:8001"
 

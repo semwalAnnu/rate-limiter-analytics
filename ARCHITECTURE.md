@@ -106,7 +106,9 @@ The `/health` endpoint is public with no auth.
 
 ### Rate Limiter (`gateway/rate_limiter.py`)
 
-**Algorithm:** Token Bucket
+Supports two algorithms, selectable via `RATE_LIMIT_ALGORITHM` env var.
+
+#### Token Bucket (default)
 
 Each client gets a bucket in Redis with two keys:
 - `bucket:{client_id}:tokens` — current token count (float)
@@ -126,6 +128,45 @@ Simpler to read and debug. The retry loop handles contention without distributed
 Redis keys have a TTL so stale buckets get cleaned up automatically.
 
 **Defaults:** 100 tokens capacity, 10 tokens/second refill rate.
+
+#### Sliding Window Log
+
+Each client gets a Redis sorted set (`swlog:{client_id}`) where each member is a
+request timestamp (score = Unix time).
+
+**How it works:**
+1. WATCH the sorted set key
+2. ZREMRANGEBYSCORE to remove entries older than `now - window_seconds`
+3. ZCARD to count remaining entries
+4. If count < capacity: MULTI → ZADD the new timestamp → EXEC → allow
+5. If count >= capacity: UNWATCH → reject
+6. Retry on WatchError (up to 5 times)
+
+**Tradeoff vs token bucket:** More memory (O(n) per client vs O(1)), but exact
+enforcement with no burst allowance. Better for abuse prevention scenarios.
+
+**Defaults:** 100 requests per 10-second window.
+
+#### Redis Failure Handling (Fail-Open)
+
+When Redis is unreachable (connection error, timeout), the rate limiter **fails open** —
+the request is allowed through and a warning is logged. This prevents a Redis outage
+from taking down the entire gateway.
+
+**Why fail-open instead of fail-closed:**
+- The gateway's primary job is proxying requests to upstream services. Rate limiting is
+  a safety layer, not the core function.
+- A Redis outage is typically brief (restart, network blip). Blocking all traffic during
+  that window is worse than temporarily allowing unthrottled requests.
+- The upstream services have their own capacity limits (circuit breaker, timeouts) that
+  still protect against overload.
+
+**What gets caught:** `ConnectionError`, `OSError`, `redis.ConnectionError`,
+`redis.TimeoutError`. Other exceptions (like `WatchError` exhaustion) still propagate
+since they indicate a logic error, not an infrastructure outage.
+
+**How to tell it's happening:** Look for log lines like:
+`WARNING - redis unavailable, failing open for client <id>: <error>`
 
 ---
 
