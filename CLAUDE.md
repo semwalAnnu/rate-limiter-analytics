@@ -263,6 +263,10 @@ Bad (sounds like AI wrote it):
 - feat: add test scaffolding with placeholder tests
 - fix: resolve edge case in token bucket refill logic
 
+**No AI attribution — ever.** Do not include `Co-Authored-By` lines, "Generated with Claude/AI"
+footers, or any other indication that AI was used — in commit messages, code comments,
+PR descriptions, or any file in this repo.
+
 ## Jupyter Analysis Goals
 
 The notebook should answer these questions using Pandas on TimescaleDB data:

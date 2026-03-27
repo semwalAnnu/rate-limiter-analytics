@@ -31,7 +31,7 @@ docker compose up -d
 | Grafana    | http://localhost:3000         | admin / admin      |
 | Jupyter    | http://localhost:8888         | token: `analytics` |
 
-For detailed setup instructions, troubleshooting, and how to run every component, see [SETUP.md](SETUP.md).                  |
+For detailed setup instructions, troubleshooting, and how to run every component, see [SETUP.md](SETUP.md).
 
 ## Building
 
@@ -152,3 +152,43 @@ Locust run: 500 concurrent users, 5 minutes, single Docker host (Apple Silicon).
 - 9,676 circuit breaker trips (503) — upstream overloaded, breaker protected it
 
 **Why throughput is below target:** The 5,000 req/s target assumes a production deployment with multiple uvicorn workers behind a load balancer. This benchmark runs a single uvicorn worker inside Docker on a laptop. The bottleneck is CPU contention between all services sharing one machine, not the rate limiter itself (which adds < 5ms when Redis is local).
+
+## Rate Limiting Algorithms
+
+The gateway supports two rate limiting algorithms, configurable via the `RATE_LIMIT_ALGORITHM` env var.
+
+### Token Bucket (default)
+
+Each client gets a bucket that fills at a steady rate (`RATE_LIMIT_REFILL_RATE` tokens/sec) up to a max capacity (`RATE_LIMIT_CAPACITY`). Each request consumes one token. If the bucket is empty, the request is rejected.
+
+**Redis storage:** 2 keys per client (token count + last refill timestamp).
+
+### Sliding Window Log
+
+Each request's timestamp is stored in a Redis sorted set. On each new request, entries older than the window (`RATE_LIMIT_WINDOW_SECONDS`) are removed, and the request is allowed only if the remaining count is under capacity.
+
+**Redis storage:** 1 sorted set per client, with one member per request in the window.
+
+### Tradeoffs
+
+| | Token Bucket | Sliding Window |
+|---|---|---|
+| **Accuracy** | Approximate — allows short bursts up to capacity | Exact — counts every request in the window |
+| **Memory** | O(1) per client (2 keys) | O(n) per client where n = requests in window |
+| **Burst behavior** | Allows bursts if tokens accumulated | Strict — no bursts beyond the limit |
+| **Performance** | Constant time regardless of traffic | Slightly slower under high traffic (sorted set ops) |
+| **Best for** | General use, tolerates short bursts | Strict enforcement, abuse prevention |
+
+### Configuration
+
+```bash
+# Token bucket (default)
+RATE_LIMIT_ALGORITHM=token_bucket
+RATE_LIMIT_CAPACITY=100
+RATE_LIMIT_REFILL_RATE=10
+
+# Sliding window
+RATE_LIMIT_ALGORITHM=sliding_window
+RATE_LIMIT_CAPACITY=100
+RATE_LIMIT_WINDOW_SECONDS=10
+```
