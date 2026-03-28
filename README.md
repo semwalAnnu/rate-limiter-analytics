@@ -129,27 +129,28 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/products
 
 ## Benchmark Results
 
-Locust run: 500 concurrent users, 5 minutes, single Docker host (Apple Silicon).
+Locust run: 500 concurrent users, ~6 minutes, single Docker host (Apple Silicon).
 
 | Metric | Target | Actual | Notes |
 |---|---|---|---|
-| Gateway throughput | 5,000+ req/s | ~221 req/s | single uvicorn worker, Docker-on-laptop |
-| Median latency | — | 2,300ms | includes upstream + Kafka publish |
-| P99 latency | < 5ms overhead | 4,800ms | dominated by upstream latency under load |
+| Gateway throughput | 5,000+ req/s | ~194 req/s | single uvicorn worker, Docker-on-laptop |
+| Median latency | — | 2,400ms | includes upstream + Kafka publish |
+| P99 latency | < 5ms overhead | 4,100ms | dominated by upstream latency under load |
 | False positives | 0 | 0 | no legitimate client was rate-limited incorrectly |
-| Kafka → TimescaleDB | < 1s lag | ~56.9k / 66.3k events stored | 85.8% capture rate during high load |
+| Kafka → TimescaleDB | < 1s lag | 356k events stored | pipeline kept up across multiple runs |
 
 **Breakdown by endpoint:**
 
-| Endpoint | Requests | Failures | Median | P99 |
-|---|---|---|---|---|
-| /api/v1/products | 32,597 | 964 (2.96%) | 2,400ms | 4,900ms |
-| /api/v1/orders | 10,912 | 322 (2.95%) | 2,400ms | 4,800ms |
-| /api/v1/products [aggressive] | 22,793 | 15,940 (69.93%) | 150ms | 4,800ms |
+| Endpoint | Requests | Failures | Median | P95 | P99 |
+|---|---|---|---|---|---|
+| /api/v1/products | 40,092 | 2,305 (5.7%) | 2,500ms | 3,500ms | 4,100ms |
+| /api/v1/orders | 13,320 | 747 (5.6%) | 2,400ms | 3,500ms | 4,100ms |
+| /api/v1/products [aggressive] | 18,463 | 10,107 (54.7%) | 2,200ms | 3,700ms | 4,200ms |
 
-**Error breakdown:**
-- 7,550 rate limit rejections (429) — aggressive users correctly throttled
-- 9,676 circuit breaker trips (503) — upstream overloaded, breaker protected it
+**Error breakdown (13,159 total failures):**
+- ~7,500 circuit breaker trips (503) — upstream overloaded, breaker protected it
+- ~4,400 connection errors — gateway under heavy CPU contention on a single host
+- ~75 upstream timeouts (504)
 
 **Why throughput is below target:** The 5,000 req/s target assumes a production deployment with multiple uvicorn workers behind a load balancer. This benchmark runs a single uvicorn worker inside Docker on a laptop. The bottleneck is CPU contention between all services sharing one machine, not the rate limiter itself (which adds < 5ms when Redis is local).
 
