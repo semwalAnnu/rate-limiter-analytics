@@ -65,7 +65,10 @@ async def proxy(
 
     redis = request.app.state.redis
 
-    allowed, tokens = await check_rate_limit(redis, client_id)
+    try:
+        allowed, tokens = await check_rate_limit(redis, client_id)
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="rate limiter unavailable")
 
     if not allowed:
         event = RequestEvent(
