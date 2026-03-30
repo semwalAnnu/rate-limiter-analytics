@@ -309,15 +309,25 @@ Run: `docker compose run --rm locust --host=http://gateway:8000 --users 500 --sp
 
 ---
 
-### Jupyter Notebook (`notebooks/traffic_analysis.ipynb`)
+### Jupyter Notebook — Observability Analytics (`notebooks/traffic_analysis.ipynb`)
 
-Five batch analysis questions using pandas on TimescaleDB data:
+Batch analysis on 356K+ request events stored in TimescaleDB, using Pandas for
+data wrangling and Matplotlib for visualization. Connects directly to TimescaleDB
+via SQLAlchemy and loads both raw events and pre-aggregated 1-minute rollups.
 
-1. **Peak rejection hour** — which hour of the day has the highest rejection rate?
-2. **Automated clients** — flags clients with low coefficient of variation in request intervals (CV < 0.5)
-3. **Traffic vs latency correlation** — Pearson correlation between request volume and p99 latency
-4. **Most-rejected endpoint** — which endpoint gets hit most by rejected clients?
-5. **Pareto check** — do the top 3 clients account for ~80% of all rejections?
+Five analyses focused on understanding rate limiter behavior under load:
+
+1. **Peak rejection hour** — bar chart of rejection rate by hour of day, identifies
+   the UTC hour with the highest rejection percentage
+2. **Automated client detection** — computes coefficient of variation (CV) of
+   inter-arrival times per client. Clients with CV < 0.5 flagged as potentially
+   automated (low variance = regular interval = scripted traffic)
+3. **Traffic volume vs P99 latency** — dual-axis time series with Pearson correlation
+   to show whether tail latency degrades under load
+4. **Most-rejected endpoint** — pie chart showing which endpoints absorb the most
+   rate-limited traffic
+5. **Pareto analysis** — bar chart proving whether the top 3 clients account for
+   the majority of all rejections (expected ~80%, Pareto principle)
 
 ---
 
